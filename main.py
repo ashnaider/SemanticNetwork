@@ -2,10 +2,17 @@ import numpy as np
 import os
 import argparse
 
+# for networkx library
+import matplotlib.pyplot as plt
+import networkx as nx
+
+# for graphviz
+import graphviz
+
 from dataclasses import dataclass, astuple
 
 global DEBUG
-DEBUG = True
+DEBUG = False
 
 @dataclass
 class Relation:
@@ -44,13 +51,24 @@ class SemanticNetwork:
         for rel in self.SN_relations:
             if rel.id == rel_id:
                 return rel.name
+            
+    def get_named_relation(self, int_lhs, int_rel_id, int_rhs):
+        str_lhs = self.SN_objects[int_lhs]
+        str_rhs = self.SN_objects[int_rhs]
+        str_rel = self.rel_id2name(int_rel_id)
+        return str_lhs, str_rel, str_rhs
+    
+    def get_setup_named_relations(self):
+        output = []
+        for obj in self.SN_obj_relations:
+            output.append(self.get_named_relation(obj.lhs, obj.rel, obj.rhs))
+        return output
 
     def data_from_file(self, filename):
         with open(filename, 'r') as f:
             self.raw_data = f.read()
             
-            if self.debug:
-                print(self.raw_data)
+            print(self.raw_data)
 
         self.parse_sn_objects(self.raw_data)
         self.parse_relations(self.raw_data)
@@ -148,23 +166,80 @@ class SemanticNetwork:
         lhs_range = self.get_range(lhs_obj)
         rhs_range = self.get_range(rhs_obj)
         rel_range = self.get_rel_range(rel_id)
+        output = []
         for i in lhs_range:
             for j in rhs_range:
                 rel = self.total_m[i, j]
                 if rel in rel_range:
-                    print(f"{self.SN_objects[self.obj_ind2key[i]]} -> " \
-                          f"{self.rel_id2name(rel)} -> " \
-                          f"{self.SN_objects[self.obj_ind2key[j]]}")
+                    lhs = self.SN_objects[self.obj_ind2key[i]]
+                    rel = self.rel_id2name(rel)
+                    rhs = self.SN_objects[self.obj_ind2key[j]]
+                    output.append((lhs, rel, rhs))
+        self.print_output(output)
+        return output
+                    
+    def print_output(self, output):
+        for line in output:
+            lhs, rel, rhs = line
+            print(f"{lhs} -> {rel} -> {rhs}")
 
+    def get_obj_rel_dict(self, output):
+        res = dict()
+        for (lhs, rel, rhs) in output:
+            res[(lhs, rhs)] = rel
+        return res
+                    
+    def draw_graph_networkx(self):
+        # output = self.process_query("?:?:?")
+        output = self.get_setup_named_relations()
+        obj_rel_dict = self.get_obj_rel_dict(output)
+        G = nx.DiGraph()
+        for (lhs, rhs) in obj_rel_dict.keys():
+            G.add_edge(lhs, rhs, color="black")
+
+        # pos = nx.arf_layout(G) # not bad
+        # pos = nx.shell_layout(G) # not bad
+        # pos = nx.kamada_kawai_layout(G) # not bad
+        pos = nx.circular_layout(G)
+        
+        mng = plt.get_current_fig_manager()
+        mng.full_screen_toggle()
+
+        nx.draw(G, pos, with_labels=True, node_shape="s", node_color="none", 
+                    bbox=dict(facecolor="skyblue", edgecolor='black', boxstyle='round,pad=0.2'))
+        
+        nx.draw_networkx_edge_labels(
+            G, pos,
+            obj_rel_dict,
+            )
+        plt.show()
+
+    def draw_graph_graphviz(self):
+        output = self.get_setup_named_relations()
+
+        g = graphviz.Digraph('SN', format='png')
+
+        for (lhs, rel, rhs) in output:
+            g.node(lhs, lhs)
+            g.node(rhs, rhs)
+
+            g.edge(tail_name=lhs, head_name=rhs, label=rel)
+
+        g.render(directory='./')
+        g.view()
+        
 
 def main():
-    # fn = "test_plane.txt"
-    fn = "test_plane_short.txt"
+    fn = "test_plane.txt"
+    # fn = "test_plane_short.txt"
     SN = SemanticNetwork()
 
     filename = os.path.join("data", fn)
     SN.data_from_file(filename)
 
+    SN.draw_graph_graphviz()
+    # SN.draw_graph_networkx()
+    
     while True:
         query = input("Enter <?:?:?>: ").strip().lower()
         if query == 'q':
