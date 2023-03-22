@@ -156,12 +156,25 @@ class SemanticNetwork:
             return range(len(self.SN_relations)+1)
         else:
             rel = int(rel)
-            rel_type = self.rel_id2type(rel)
-            return range(rel_type, rel_type+1)
+            # rel_type = self.rel_id2type(rel)
+            
+            return range(rel, rel+1)
 
     
     def process_query(self, raw_query):
         lhs_obj, rel_id, rhs_obj = [x.strip() for x in raw_query.split(':')]
+
+        if not self.is_unknown(lhs_obj) and \
+           not self.is_unknown(rel_id) and \
+           not self.is_unknown(rhs_obj):
+            lhs_ind = self.obj_key2ind[int(lhs_obj)]
+            rel_id = int(rel_id)
+            rhs_ind = self.obj_key2ind[int(rhs_obj)]
+            if self.total_m[lhs_ind, rhs_ind] == rel_id:
+                print("YES!")
+            else:
+                print("NO.")
+            return
         
         lhs_range = self.get_range(lhs_obj)
         rhs_range = self.get_range(rhs_obj)
