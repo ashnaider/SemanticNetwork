@@ -9,10 +9,11 @@ import networkx as nx
 # for graphviz
 import graphviz
 
+# for pretty table formatting 
+from prettytable import PrettyTable
+
 from dataclasses import dataclass, astuple
 
-global DEBUG
-DEBUG = False
 
 @dataclass
 class Relation:
@@ -28,7 +29,7 @@ class ObjRelation:
 
 
 class SemanticNetwork:
-    def __init__(self):
+    def __init__(self, debug=False):
         self.NEW_SECTION_REGEX = "^#[0-9]"
         self.SN_objects = dict()
         self.SN_relations = []
@@ -38,9 +39,7 @@ class SemanticNetwork:
         self.obj_ind2key = dict()
 
         self.total_m = None
-
-        global DEBUG
-        self.debug = DEBUG 
+        self.debug = debug
 
     def rel_id2type(self, rel_id):
         for rel in self.SN_relations:
@@ -51,6 +50,16 @@ class SemanticNetwork:
         for rel in self.SN_relations:
             if rel.id == rel_id:
                 return rel.name
+            
+    def get_named_obj_in_order(self, short=False, max_s=6):
+        named_obj = []
+        for obj_ind in sorted(self.obj_ind2key.keys()):
+            val = self.SN_objects[self.obj_ind2key[obj_ind]]
+            if short and len(val) > max_s:
+                val = val[:6]
+            named_obj.append(val)
+        
+        return named_obj
             
     def get_named_relation(self, int_lhs, int_rel_id, int_rhs):
         str_lhs = self.SN_objects[int_lhs]
@@ -64,11 +73,27 @@ class SemanticNetwork:
             output.append(self.get_named_relation(obj.lhs, obj.rel, obj.rhs))
         return output
 
+    def print_setup(self):
+        print(self.raw_data)
+
+    def print_total_matrix(self):
+        t = PrettyTable()
+        named_obj = self.get_named_obj_in_order(short=True)
+        print(f"{named_obj = }")
+        t.field_names = [""] + named_obj
+        for i in range(self.obj_count):
+            row = list(self.total_m[i])
+            for j, el in enumerate(row):
+                if el == -1:
+                    row[j] = '-'
+            t.add_row([named_obj[i]] + row)
+        print(t)
+
     def data_from_file(self, filename):
         with open(filename, 'r') as f:
             self.raw_data = f.read()
             
-            print(self.raw_data)
+            self.print_setup()
 
         self.parse_sn_objects(self.raw_data)
         self.parse_relations(self.raw_data)
@@ -78,38 +103,49 @@ class SemanticNetwork:
         self.total_m = np.full(shape=(self.obj_count, self.obj_count), 
                                fill_value=-1)
 
-        # if self.debug:
-        #     print(self.SN_objects)
-        #     for x in self.SN_relations:
-        #         print(x)
-        #     for x in self.SN_obj_relations:
-        #         print(x)
-
         for obj in self.SN_obj_relations:
             lhs_ind = self.obj_key2ind[obj.lhs]
             rhs_ind = self.obj_key2ind[obj.rhs]
 
             self.total_m[lhs_ind, rhs_ind] = obj.rel
 
+        if self.debug:
+            self.print_total_matrix()
+
         for i in range(self.obj_count):
             self.dfs_for_obj(i, i, np.zeros(shape=(self.obj_count)))
 
         if self.debug:
-            print(self.total_m)
+            self.print_total_matrix()
+
+        if self.debug:
+            self.process_query("?:?:?")
 
     def dfs_for_obj(self, start_ind, obj_ind, visited):
         visited[obj_ind] = 1
 
+        start2curr_rel_type = self.rel_id2type(self.total_m[start_ind, obj_ind])
+        if self.rel_is_inherits_all_properties(start2curr_rel_type):
+            for new_j, new_prop in enumerate(self.total_m[obj_ind, :]):
+                if self.total_m[start_ind, new_j] == -1:
+                    self.total_m[start_ind, new_j] = new_prop
+
         for j in range(self.obj_count):
             rel = self.total_m[obj_ind, j]
+            rel_type = self.rel_id2type(rel)
+
             if rel != -1:
-                rel_type = self.rel_id2type(rel)
                 if self.rel_is_transitionable(rel_type) and visited[j] == 0:
                     self.total_m[start_ind, j] = self.total_m[obj_ind, j]
                     self.dfs_for_obj(start_ind, j, visited)
-
+                
+                
+                
     def rel_is_transitionable(self, rel_type):
         return rel_type > 0
+    
+    def rel_is_inherits_all_properties(self, rel_type):
+        return rel_type == 1
 
     def parse_sn_objects(self, raw_data):
         section = self.get_section(raw_data, 1)
@@ -184,9 +220,19 @@ class SemanticNetwork:
             for j in rhs_range:
                 rel = self.total_m[i, j]
                 if rel in rel_range:
-                    lhs = self.SN_objects[self.obj_ind2key[i]]
+                    lhs_key = self.obj_ind2key[i]
+                    rhs_key = self.obj_ind2key[j]
+
+                    ## Formating with obj id's
+                    # lhs = f"{self.SN_objects[lhs_key]} [{lhs_key}]"
+                    # rel = f"{self.rel_id2name(rel)} [{self.rel_id2type(rel)}]"
+                    # rhs = f"{self.SN_objects[rhs_key]} [{rhs_key}]"
+
+                    ## Formating simple
+                    lhs = self.SN_objects[lhs_key]
                     rel = self.rel_id2name(rel)
-                    rhs = self.SN_objects[self.obj_ind2key[j]]
+                    rhs = self.SN_objects[rhs_key]
+
                     output.append((lhs, rel, rhs))
         self.print_output(output)
         return output
@@ -243,14 +289,24 @@ class SemanticNetwork:
         
 
 def main():
-    fn = "test_plane.txt"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--file_input", 
+                        help="Absolute or relative path to the file to read data from.",
+                        required=True,
+                        )
+    parser.add_argument("-d", "--debug", help="Print debug information.",
+                        required=False, type=bool, choices=[True, False])
+    args = parser.parse_args()
+
+    fn = args.file_input
+    # fn = "test_plane.txt"
     # fn = "test_plane_short.txt"
-    SN = SemanticNetwork()
+    # filename = os.path.join("data", fn)
 
-    filename = os.path.join("data", fn)
-    SN.data_from_file(filename)
+    SN = SemanticNetwork(debug=args.debug)
+    SN.data_from_file(fn)
 
-    SN.draw_graph_graphviz()
+    # SN.draw_graph_graphviz()
     # SN.draw_graph_networkx()
     
     while True:
@@ -259,7 +315,14 @@ def main():
             break
         elif query == '':
             continue
-        SN.process_query(query)
+        elif query == 'p':
+            SN.print_setup()
+            continue
+
+        try:
+            SN.process_query(query)
+        except:
+            print("Invalid input!")
 
 
 if __name__ == "__main__":
