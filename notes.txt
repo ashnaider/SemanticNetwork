@@ -1,0 +1,8 @@
+libs, to create visualization of graphs:
+
+1. networkx: https://networkx.org/
+
+2. graphviz: https://graphviz.org/
+
+
+
