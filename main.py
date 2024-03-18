@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import re
 import argparse
 
 # for networkx library
@@ -13,6 +14,8 @@ import graphviz
 from prettytable import PrettyTable
 
 from dataclasses import dataclass, astuple
+
+TABLE_NONE = -222
 
 
 @dataclass
@@ -56,15 +59,15 @@ class SemanticNetwork:
         for obj_ind in sorted(self.obj_ind2key.keys()):
             val = self.SN_objects[self.obj_ind2key[obj_ind]]
             if short and len(val) > max_s:
-                val = val[:6]
+                val = val[:max_s]
             named_obj.append(val)
         
         return named_obj
             
     def get_named_relation(self, int_lhs, int_rel_id, int_rhs):
-        str_lhs = self.SN_objects[int_lhs]
-        str_rhs = self.SN_objects[int_rhs]
-        str_rel = self.rel_id2name(int_rel_id)
+        str_lhs = f"{self.SN_objects[int(int_lhs)]} [{int_lhs}]" if int_lhs != '?' else int_lhs
+        str_rhs = f"{self.SN_objects[int(int_rhs)]} [{int_rhs}]" if int_rhs != '?' else int_rhs
+        str_rel = f"{self.rel_id2name(int(int_rel_id))} [{int_rel_id}]" if int_rel_id != '?' else int_rel_id
         return str_lhs, str_rel, str_rhs
     
     def get_setup_named_relations(self):
@@ -76,16 +79,16 @@ class SemanticNetwork:
     def print_setup(self):
         print(self.raw_data)
 
-    def print_total_matrix(self):
+    def print_total_matrix(self, m):
         t = PrettyTable()
-        named_obj = self.get_named_obj_in_order(short=True)
+        named_obj = self.get_named_obj_in_order(short=True, max_s=6)
         print(f"{named_obj = }")
         t.field_names = [""] + named_obj
         for i in range(self.obj_count):
-            row = list(self.total_m[i])
+            row = list(m[i])
             for j, el in enumerate(row):
-                if el == -1:
-                    row[j] = '-'
+                if el == TABLE_NONE:
+                    row[j] = '.'
             t.add_row([named_obj[i]] + row)
         print(t)
 
@@ -101,48 +104,53 @@ class SemanticNetwork:
 
         self.obj_count = len(self.SN_objects)
         self.total_m = np.full(shape=(self.obj_count, self.obj_count), 
-                               fill_value=-1)
+                               fill_value=TABLE_NONE)
 
         for obj in self.SN_obj_relations:
             lhs_ind = self.obj_key2ind[obj.lhs]
             rhs_ind = self.obj_key2ind[obj.rhs]
-
             self.total_m[lhs_ind, rhs_ind] = obj.rel
 
         if self.debug:
-            self.print_total_matrix()
-
-        for i in range(self.obj_count):
-            self.dfs_for_obj(i, i, np.zeros(shape=(self.obj_count)))
+            print(f"{self.SN_objects = }")
+            print(f"{self.SN_relations = }")
+            print(f"{self.SN_obj_relations = }")
 
         if self.debug:
-            self.print_total_matrix()
+            self.print_total_matrix(self.total_m)
+
+        for i in range(self.obj_count):            
+            self.dfs_for_obj(start_ind=i, 
+                             obj_ind=i, 
+                             prev_ind=i,
+                             visited=np.zeros(shape=(self.obj_count)),)
+
+        if self.debug:
+            self.print_total_matrix(self.total_m)
 
         if self.debug:
             self.process_query("?:?:?")
 
-    def dfs_for_obj(self, start_ind, obj_ind, visited):
+    def dfs_for_obj(self, start_ind, obj_ind, prev_ind, visited):
         visited[obj_ind] = 1
 
         start2curr_rel_type = self.rel_id2type(self.total_m[start_ind, obj_ind])
         if self.rel_is_inherits_all_properties(start2curr_rel_type):
             for new_j, new_prop in enumerate(self.total_m[obj_ind, :]):
-                if self.total_m[start_ind, new_j] == -1:
+                if self.total_m[start_ind, new_j] == TABLE_NONE:
                     self.total_m[start_ind, new_j] = new_prop
 
         for j in range(self.obj_count):
             rel = self.total_m[obj_ind, j]
-            rel_type = self.rel_id2type(rel)
+            curr_rel_type = self.rel_id2type(rel)
 
-            if rel != -1:
-                if self.rel_is_transitionable(rel_type) and visited[j] == 0:
+            if rel != TABLE_NONE:
+                if self.rel_is_transitionable(curr_rel_type) and not visited[j]:
                     self.total_m[start_ind, j] = self.total_m[obj_ind, j]
-                    self.dfs_for_obj(start_ind, j, visited)
-                
-                
+                    self.dfs_for_obj(start_ind, obj_ind=j, prev_ind=obj_ind, visited=visited)              
                 
     def rel_is_transitionable(self, rel_type):
-        return rel_type > 0
+        return rel_type is not None and rel_type > 0
     
     def rel_is_inherits_all_properties(self, rel_type):
         return rel_type == 1
@@ -192,7 +200,6 @@ class SemanticNetwork:
             return range(len(self.SN_relations)+1)
         else:
             rel = int(rel)
-            # rel_type = self.rel_id2type(rel)
             
             return range(rel, rel+1)
 
@@ -206,6 +213,8 @@ class SemanticNetwork:
             lhs_ind = self.obj_key2ind[int(lhs_obj)]
             rel_id = int(rel_id)
             rhs_ind = self.obj_key2ind[int(rhs_obj)]
+            lhs_name, rel_name, rhs_name = self.get_named_relation(lhs_obj, rel_id, rhs_obj)
+            print(f"{lhs_name} -> {rel_name} -> {rhs_name} ?")
             if self.total_m[lhs_ind, rhs_ind] == rel_id:
                 print("YES!")
             else:
@@ -249,7 +258,6 @@ class SemanticNetwork:
         return res
                     
     def draw_graph_networkx(self):
-        # output = self.process_query("?:?:?")
         output = self.get_setup_named_relations()
         obj_rel_dict = self.get_obj_rel_dict(output)
         G = nx.DiGraph()
@@ -299,14 +307,11 @@ def main():
     args = parser.parse_args()
 
     fn = args.file_input
-    # fn = "test_plane.txt"
-    # fn = "test_plane_short.txt"
-    # filename = os.path.join("data", fn)
 
     SN = SemanticNetwork(debug=args.debug)
     SN.data_from_file(fn)
 
-    # SN.draw_graph_graphviz()
+    SN.draw_graph_graphviz()
     # SN.draw_graph_networkx()
     
     while True:
@@ -319,10 +324,17 @@ def main():
             SN.print_setup()
             continue
 
-        try:
-            SN.process_query(query)
-        except:
+        if not re.match("^([0-9]{1,2}|\?):([0-9]{1,2}|\?):([0-9]{1,2}|\?)", query):
             print("Invalid input!")
+            continue
+
+        if args.debug:
+            SN.process_query(query)
+        else:
+            try:
+                SN.process_query(query)
+            except:
+                print("Error occured!")
 
 
 if __name__ == "__main__":
