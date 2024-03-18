@@ -1,0 +1,49 @@
+#1
+10:Car
+14:BMW X5 M
+15:Mercedes-Benz AMG GT
+16:DeLorean DMC
+17:Time Machine
+18:Travel in Time
+19:Petrol
+20:Oil
+21:Wheels
+22:Brakes
+23:Bicycle
+24:Tires
+25:Ride
+27:Black
+28:Color
+29:Be dangerous
+#2
+1:is_a:1
+2:color:0
+3:model_of:1
+4:faster_then:2
+5:can:2
+6:has:2
+7:might_be:0
+8:needs:0
+#3
+16:3:10
+15:3:10
+14:3:10
+16:1:17
+10:6:22
+10:6:21
+21:6:24
+23:6:21
+23:6:22
+10:4:23
+15:4:14
+10:8:19
+19:6:20
+20:2:27
+27:1:28
+10:5:25
+23:5:25
+17:5:18
+25:7:29
+18:7:29
+24:2:27
+16:4:15
